@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE}")" && pwd)"
+VENV_DIR="$SCRIPT_DIR/.venv"
+
+# Check if venv exists
+if [ ! -d "$VENV_DIR" ]; then
+    echo "Error: Virtual environment not found."
+    echo "Run './setup.sh' first to initialize."
+    exit 1
+fi
+
+# Activate venv
+source "$VENV_DIR/bin/activate"
+
+# Run the python script with all arguments passed to run.sh
+echo "Running music organizer..."
+python3 "$SCRIPT_DIR/organize.py" "$@"
+
+# Extract arguments to check for --live and destination
+# We need to be careful here. If --live is present, we clean up.
+if [[ "$*" == *"--live"* ]]; then
+    # Determine the source directory (first argument)
+    # We need to parse args to find the source. 
+    # Simple logic: if first arg starts with - it's not source.
+    # But usually source is the first non-flag arg.
+    
+    # Let's just clean up the SOURCE directory if --live was used
+    # and if a destination was provided, we might want to clean the source too.
+    # For safety, let's just ask the user or default to cleaning the SOURCE only.
+    
+    # Get the source path (first positional arg, ignoring flags)
+    SOURCE_PATH=""
+    for arg in "$@"; do
+        if [[ "$arg" != --* ]]; then
+            SOURCE_PATH="$arg"
+            break
+        fi
+    done
+
+    if [ -n "$SOURCE_PATH" ] && [ -d "$SOURCE_PATH" ]; then
+        echo ""
+        echo "Cleaning up empty directories in source: $SOURCE_PATH"
+        find "$(realpath "$SOURCE_PATH")" -type d -empty -delete
+        echo "Cleanup complete."
+    fi
+fi
+
