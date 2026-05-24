@@ -4,33 +4,20 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE}")" && pwd)"
 VENV_DIR="$SCRIPT_DIR/.venv"
 
-# Check if venv exists
 if [ ! -d "$VENV_DIR" ]; then
     echo "Error: Virtual environment not found."
     echo "Run './setup.sh' first to initialize."
     exit 1
 fi
 
-# Activate venv
 source "$VENV_DIR/bin/activate"
 
-# Run the python script with all arguments passed to run.sh
 echo "Running music organizer..."
 python3 "$SCRIPT_DIR/organize.py" "$@"
 
-# Extract arguments to check for --live and destination
-# We need to be careful here. If --live is present, we clean up.
+# Check if --live was used to decide on cleanup
 if [[ "$*" == *"--live"* ]]; then
-    # Determine the source directory (first argument)
-    # We need to parse args to find the source. 
-    # Simple logic: if first arg starts with - it's not source.
-    # But usually source is the first non-flag arg.
-    
-    # Let's just clean up the SOURCE directory if --live was used
-    # and if a destination was provided, we might want to clean the source too.
-    # For safety, let's just ask the user or default to cleaning the SOURCE only.
-    
-    # Get the source path (first positional arg, ignoring flags)
+    # Find the source path (first non-flag argument)
     SOURCE_PATH=""
     for arg in "$@"; do
         if [[ "$arg" != --* ]]; then
@@ -39,11 +26,32 @@ if [[ "$*" == *"--live"* ]]; then
         fi
     done
 
+    # Only clean up if --move or in-place (no destination)
+    # If --copy was used with a destination, we don't want to delete the source
     if [ -n "$SOURCE_PATH" ] && [ -d "$SOURCE_PATH" ]; then
-        echo ""
-        echo "Cleaning up empty directories in source: $SOURCE_PATH"
-        find "$(realpath "$SOURCE_PATH")" -type d -empty -delete
-        echo "Cleanup complete."
+        IS_MOVE=false
+        if [[ "$*" == *"--move"* ]]; then
+            IS_MOVE=true
+        elif [[ -z "$SOURCE_PATH" || "$SOURCE_PATH" == "$1" ]]; then 
+            # If no destination provided, it's in-place move
+            IS_MOVE=true
+        fi
+        
+        # If no destination was provided, it's always a move
+        # If --move flag was provided, it's a move
+        if [[ "$*" == *"--move"* ]] || [[ -z "$1" || "$1" == "$SOURCE_PATH" && -z "$2" ]]; then
+             # Wait, let's just check if --move or no destination
+             # Actually, if --copy is present, we skip cleanup
+             if [[ "$*" != *"--copy"* ]]; then
+                 echo ""
+                 echo "Cleaning up empty directories in source: $SOURCE_PATH"
+                 find "$(realpath "$SOURCE_PATH")" -type d -empty -delete
+                 echo "Cleanup complete."
+             else
+                 echo ""
+                 echo "Skipping cleanup (COPY mode was used)."
+             fi
+        fi
     fi
 fi
 

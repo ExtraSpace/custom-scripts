@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
 music-organizer: Reorganize MP3 files based on ID3 tags.
-Structure: <root>/<Album Artist>/<Album>/<Artist>-<Track>-<Title>.mp3
 """
 
 import argparse
@@ -11,23 +10,24 @@ import sys
 import shutil
 from pathlib import Path
 
+# Force buffering off for immediate output
+sys.stdout.reconfigure(line_buffering=True)
+
 try:
     from mutagen.mp3 import MP3
     from mutagen.id3 import ID3
 except ImportError:
-    print("Error: 'mutagen' library not found.")
-    print("Please run: pip install mutagen")
+    print("Error: 'mutagen' library not found.", file=sys.stderr)
+    print("Please run: pip install mutagen", file=sys.stderr)
     sys.exit(1)
 
 def sanitize_filename(name):
-    """Removes invalid characters for filenames and strips whitespace."""
     if not name:
         return "Unknown"
     name = re.sub(r'[<>:"/\\|?*]', '_', name)
     return name.strip(' .')
 
 def get_tag(file_path, tag_key, default="Unknown"):
-    """Safely extracts a tag, handling missing tags gracefully."""
     try:
         audio = MP3(file_path, ID3=ID3)
         if not audio.tags:
@@ -47,48 +47,73 @@ def get_tag(file_path, tag_key, default="Unknown"):
             if tag_key == 'track' and '/' in val:
                 val = val.split('/')
             return val.strip()
-    except Exception:
+    except Exception as e:
+        # Log error to stderr if verbose logic was added, but for now just return default
         return default
     
     return default
 
-def organize_music(source_path, dest_path=None, dry_run=True, verbose=False):
+def organize_music(source_path, dest_path=None, dry_run=True, verbose=False, action='default'):
     source_root = Path(source_path).resolve()
     
     if not source_root.is_dir():
-        print(f"Error: Source '{source_root}' is not a valid directory.")
+        print(f"Error: Source '{source_root}' is not a valid directory.", file=sys.stderr)
         sys.exit(1)
 
-    # Determine destination root
+    # Determine action
+    final_action = action
+    if dest_path is not None and action == 'default':
+        final_action = 'copy'
+    
+    dest_root = None
     if dest_path:
         dest_root = Path(dest_path).resolve()
-        # Create destination if it doesn't exist
         if not dest_root.exists():
             if dry_run:
-                print(f"[DRY RUN] Would create destination: {dest_root}")
+                print(f"[DRY RUN] Destination '{dest_root}' does not exist. Would create it.")
+                # In dry run, we don't create it, so we can't proceed to move files into it
+                # But we should warn the user
+                if not verbose:
+                    print("Note: Destination does not exist. Use --live to create it.", file=sys.stderr)
             else:
                 try:
                     dest_root.mkdir(parents=True, exist_ok=True)
                     print(f"Created destination: {dest_root}")
-                except Exception as e:
-                    print(f"Error creating destination: {e}")
+                except PermissionError as e:
+                    print(f"Error: Permission denied creating destination '{dest_root}'.", file=sys.stderr)
+                    print(f"Details: {e}", file=sys.stderr)
                     sys.exit(1)
+                except Exception as e:
+                    print(f"Error creating destination '{dest_root}': {e}", file=sys.stderr)
+                    sys.exit(1)
+        else:
+            if verbose:
+                print(f"Destination '{dest_root}' already exists.")
     else:
         dest_root = source_root
+        final_action = 'move'
 
+    mode_str = "DRY RUN" if dry_run else "LIVE"
+    action_str = "MOVE" if final_action == 'move' else "COPY"
+    
     print(f"Source: {source_root}")
     if dest_path:
         print(f"Destination: {dest_root}")
     else:
         print("Destination: In-place (source)")
-    
-    print(f"Mode: {'DRY RUN' if dry_run else 'LIVE'}")
+    print(f"Action: {action_str}")
+    print(f"Mode: {mode_str}")
     print("-" * 60)
 
+    # Scan for files
+    if verbose:
+        print(f"Scanning for .mp3 files in {source_root}...")
+    
     mp3_files = list(source_root.rglob("*.mp3"))
     
     if not mp3_files:
-        print(f"No MP3 files found in {source_root}")
+        print(f"CRITICAL: No MP3 files found in {source_root}", file=sys.stderr)
+        print("Please check the source path and file extensions.", file=sys.stderr)
         return
 
     moved_count = 0
@@ -101,7 +126,6 @@ def organize_music(source_path, dest_path=None, dry_run=True, verbose=False):
         artist = sanitize_filename(get_tag(file, 'artist'))
         title = sanitize_filename(get_tag(file, 'title'))
 
-        # Logic: Check raw track tag
         raw_track = get_tag(file, 'track', default=None)
         
         include_track = False
@@ -122,18 +146,15 @@ def organize_music(source_path, dest_path=None, dry_run=True, verbose=False):
         else:
             new_filename = f"{artist}-{title}.mp3"
 
-        # Construct new path relative to destination root
         new_dir = dest_root / album_artist / album
         new_path = new_dir / new_filename
 
-        # Safety: Don't overwrite existing files
         if new_path.exists() and new_path != file:
             if verbose:
                 print(f"[SKIP] Exists: {new_path}")
             skipped_count += 1
             continue
 
-        # If source and destination are the same file, skip
         if file == new_path:
             if verbose:
                 print(f"[SAME] Already correct: {file}")
@@ -142,68 +163,51 @@ def organize_music(source_path, dest_path=None, dry_run=True, verbose=False):
         if verbose:
             print(f"Processing: {file.name}")
             print(f"  -> {album_artist} / {album}")
-            print(f"  -> New: {new_path.name}")
+            print(f"  -> New: {new_path.name} ({action_str})")
 
         if not dry_run:
             try:
                 new_dir.mkdir(parents=True, exist_ok=True)
                 
-                if dest_path:
-                    # Copy to new location, then delete source? 
-                    # Or Move? Let's use copy2 to preserve metadata, then remove source
-                    # If you want to MOVE instead of copy, use shutil.move(file, new_path)
+                if final_action == 'move':
                     shutil.copy2(file, new_path)
-                    file.unlink() # Delete source
+                    file.unlink()
                     moved_count += 1
                 else:
-                    # In-place move/rename
-                    file.rename(new_path)
+                    shutil.copy2(file, new_path)
                     moved_count += 1
                     
             except Exception as e:
-                print(f"  [ERROR] {e}")
+                print(f"  [ERROR] {e}", file=sys.stderr)
                 error_count += 1
         else:
             if verbose:
-                print(f"  (Would move/copy here: {new_dir})")
+                print("  (Would process here)")
 
     print("-" * 60)
     print(f"Done. Processed: {moved_count}, Skipped: {skipped_count}, Errors: {error_count}")
     
     if dry_run:
-        print("\n[INFO] Run with '--live' to actually move files.")
+        print("\n[INFO] Run with '--live' to actually execute.", file=sys.stderr)
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Organize MP3 files by ID3 tags."
-    )
-    parser.add_argument(
-        "source", 
-        help="Source directory containing music files"
-    )
-    parser.add_argument(
-        "destination", 
-        nargs="?", 
-        default=None,
-        help="Optional destination directory. If omitted, files are reorganized in-place."
-    )
-    parser.add_argument(
-        "--live", 
-        action="store_true", 
-        help="Actually move/rename files (default is dry run)"
-    )
-    parser.add_argument(
-        "--verbose", 
-        "-v", 
-        action="store_true", 
-        help="Show detailed output"
-    )
+    parser = argparse.ArgumentParser(description="Organize MP3 files.")
+    parser.add_argument("source", help="Source directory")
+    parser.add_argument("destination", nargs="?", default=None, help="Optional destination directory")
+    parser.add_argument("--live", action="store_true", help="Execute changes")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
+    parser.add_argument("--move", action="store_true", help="Force MOVE")
+    parser.add_argument("--copy", action="store_true", help="Force COPY")
 
     args = parser.parse_args()
     
+    action = 'default'
+    if args.move: action = 'move'
+    elif args.copy: action = 'copy'
+    
     dry_run = not args.live
     
-    organize_music(args.source, args.destination, dry_run=dry_run, verbose=args.verbose)
+    organize_music(args.source, args.destination, dry_run=dry_run, verbose=args.verbose, action=action)
 
 if __name__ == "__main__":
     main()
