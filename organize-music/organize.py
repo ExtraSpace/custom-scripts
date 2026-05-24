@@ -44,9 +44,22 @@ def get_tag(file_path, tag_key, default="Unknown"):
         frame = audio.tags.get(tag_map.get(tag_key))
         if frame:
             val = str(frame)
+            
+            # Handle track numbers specifically: "11/12" -> list ["11", "12"]
             if tag_key == 'track' and '/' in val:
                 val = val.split('/')
-            return val.strip()
+                # If split produces a list, we only want the first element (current track)
+                # and ensure it's a string before returning
+                if isinstance(val, list):
+                    val = val.strip() 
+                else:
+                    val = val.strip()
+            else:
+                # Standard case: just strip whitespace
+                val = val.strip()
+            
+            return val
+
     except Exception as e:
         # Log error to stderr if verbose logic was added, but for now just return default
         return default
@@ -146,16 +159,33 @@ def organize_music(source_path, dest_path=None, dry_run=True, verbose=False, act
 
         raw_track = get_tag(file, 'track', default=None)
         
+        # Robust Track Parsing
         include_track = False
         track_str = "00"
 
         if raw_track and raw_track != "Unknown":
+            # Step 1: Normalize to a simple string
+            # If raw_track is a list (e.g. ['11', '12'] or ['11/12']), join it
+            if isinstance(raw_track, list):
+                # Join list elements with '/' if they are separate, or just take the first if it's a list of one
+                # Most common case: mutagen returns ['11/12'] -> join gives "11/12"
+                # Edge case: mutagen returns ['11', '12'] -> join gives "11/12"
+                raw_track = '/'.join(str(x) for x in raw_track)
+            
+            # Step 2: Now raw_track is definitely a string like "11/12" or "11"
+            # Split by '/' to get the current track number
+            track_parts = str(raw_track).split('/')
+            
+            # Step 3: Get the first part
+            current_track_str = track_parts[0].strip() # Strip whitespace just in case
+            
             try:
                 track_val = raw_track.split('/')
                 track_num = int(track_val[0])
                 track_str = f"{track_num:02d}"
                 include_track = True
             except (ValueError, IndexError):
+                # Fallback if parsing fails
                 include_track = False
                 track_str = "00"
 
