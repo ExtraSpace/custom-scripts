@@ -1,9 +1,10 @@
 # 🎵 Music Organizer
 
-A robust, self-contained Python CLI tool to reorganize your music library based on ID3 metadata. It intelligently renames and structures your MP3 files, handling duplicate folder nesting, missing tags, and complex track numbering formats.
+A robust, self-contained Python CLI tool to reorganize your music library based on ID3 metadata. It intelligently renames and structures your MP3 files, handling duplicate folder nesting, missing tags, and optionally distributing them into alphabetical containers.
 
 **Key Features:**
 - **Smart Reorganization**: Converts messy structures (e.g., `Artist/Artist/Album/Track`) into clean hierarchies (`AlbumArtist/Album/Track-Artist-Title.mp3`).
+- **Distributed Organization** (NEW): Optionally organize files by first letter/digit into containers: `A/`, `B/`, ..., `0-9/` for scalable library structures.
 - **Flexible Modes**: Supports **Dry Run** (preview), **Copy**, and **Move** operations.
 - **Safe Defaults**: Automatically handles missing tags, sanitizes filenames, and prevents overwrites.
 - **Zero System Dependencies**: Runs in an isolated Python virtual environment (`.venv`), keeping your system Python clean.
@@ -84,7 +85,30 @@ Moves files to a new drive or folder and deletes the source.
 ./run.sh /old/music /new/music --live --move
 ```
 
-### Scenario D: Custom Filename Format
+### Scenario D: Distribute by First Letter (New)
+Organizes files into alphabetical containers for better scalability on large libraries.
+```bash
+./run.sh /path/to/music /destination/music --live --distribute
+```
+
+This creates a structure like:
+```
+destination/
+├── A/
+│   └── Adele/
+│       └── 25/
+│           └── Adele-01-Hello.mp3
+├── B/
+│   └── Beatles/
+│       └── Abbey Road/
+│           └── Beatles-01-Come Together.mp3
+├── 0-9/
+│   └── 10cc/
+│       └── Sheet Music/
+│           └── 10cc-01-I'm Not In Love.mp3
+```
+
+### Scenario E: Custom Filename Format
 The tool automatically adjusts filenames based on metadata:
 - **With Track Number**: `Artist-05-Title.mp3`
 - **Without Track Number**: `Artist-Title.mp3`
@@ -101,6 +125,7 @@ Run `./run.sh --help` for a full list of options.
 | `--verbose`, `-v` | Show detailed output for every file processed. |
 | `--move` | Force **Move** operation (Copy + Delete Source). |
 | `--copy` | Force **Copy** operation (Leave source intact). |
+| `--distribute`, `-d` | Distribute files into folders by first letter/digit: `A/`, `B/`, ..., `0-9/`. |
 | `source` | Path to the directory containing your music files. |
 | `destination` | *(Optional)* Path to the new directory. If omitted, reorganizes in-place. |
 
@@ -114,6 +139,12 @@ Run `./run.sh --help` for a full list of options.
 
 # Copy files to a backup folder
 ./run.sh /music /backup_music --live --copy
+
+# Distribute files by first letter (preview)
+./run.sh /music /distributed_music --verbose --distribute
+
+# Distribute and execute
+./run.sh /music /distributed_music --live --distribute
 ```
 
 ---
@@ -140,13 +171,35 @@ This project is designed to be self-contained:
 To change the output format (e.g., `Track - Title` instead of `Artist-Track-Title`), edit the `organize.py` file:
 
 ```python
-# Find the section around line 90
+# Find the section around line 140
 if include_track:
     new_filename = f"{artist}-{track_str}-{title}.mp3"
 else:
     new_filename = f"{artist}-{title}.mp3"
 ```
 Modify the f-string to your preference.
+
+### Modifying Distribution Logic
+To customize how files are distributed (e.g., by genre, decade, or custom groupings), edit the `get_distribution_folder()` function:
+
+```python
+def get_distribution_folder(name):
+    """
+    Determine the distribution folder based on the first character of the name.
+    Returns 'A-Z' for letters, '0-9' for digits, and '0-9' for others.
+    """
+    if not name or name == "Unknown":
+        return "0-9"
+    
+    first_char = name[0].upper()
+    
+    if first_char.isalpha():
+        return first_char
+    elif first_char.isdigit():
+        return "0-9"
+    else:
+        return "0-9"
+```
 
 ### Handling Other Formats
 Currently, the script only processes `.mp3` files (via `rglob("*.mp3")`). To support FLAC or M4A:
@@ -173,6 +226,10 @@ Currently, the script only processes `.mp3` files (via `rglob("*.mp3")`). To sup
 - **Cause**: You ran without `--live`.
 - **Fix**: Add `--live` to the command. The script defaults to **Dry Run** to prevent accidental data loss.
 
+### "Distribute" flag not working?
+- **Cause**: You might be using an older version of the script.
+- **Fix**: Pull the latest version from the repository and re-run `./setup.sh` if needed.
+
 ---
 
 ## 📄 License
@@ -192,5 +249,4 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ---
 
-> **Disclaimer**: Always backup your music library before running bulk operations. While this tool includes safety checks (Dry Run, overwrite protection), data loss is always a risk when moving files.
-
+> **Disclaimer**: Always backup your music library before running bulk operations. While this tool includes safety checks (Dry Run, overwrite protection), data loss is always a risk when moving files. Use responsibly!
