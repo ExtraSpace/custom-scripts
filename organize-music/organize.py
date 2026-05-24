@@ -53,7 +53,24 @@ def get_tag(file_path, tag_key, default="Unknown"):
     
     return default
 
-def organize_music(source_path, dest_path=None, dry_run=True, verbose=False, action='default'):
+def get_distribution_folder(name):
+    """
+    Determine the distribution folder based on the first character of the name.
+    Returns 'A-Z' for letters, '0-9' for digits, and '0-9' for others.
+    """
+    if not name or name == "Unknown":
+        return "0-9"
+    
+    first_char = name[0].upper()
+    
+    if first_char.isalpha():
+        return first_char
+    elif first_char.isdigit():
+        return "0-9"
+    else:
+        return "0-9"
+
+def organize_music(source_path, dest_path=None, dry_run=True, verbose=False, action='default', distribute=False):
     source_root = Path(source_path).resolve()
     
     if not source_root.is_dir():
@@ -95,13 +112,14 @@ def organize_music(source_path, dest_path=None, dry_run=True, verbose=False, act
 
     mode_str = "DRY RUN" if dry_run else "LIVE"
     action_str = "MOVE" if final_action == 'move' else "COPY"
+    distribute_str = " (DISTRIBUTED)" if distribute else ""
     
     print(f"Source: {source_root}")
     if dest_path:
         print(f"Destination: {dest_root}")
     else:
         print("Destination: In-place (source)")
-    print(f"Action: {action_str}")
+    print(f"Action: {action_str}{distribute_str}")
     print(f"Mode: {mode_str}")
     print("-" * 60)
 
@@ -134,7 +152,7 @@ def organize_music(source_path, dest_path=None, dry_run=True, verbose=False, act
         if raw_track and raw_track != "Unknown":
             try:
                 track_val = raw_track.split('/')
-                track_num = int(track_val)
+                track_num = int(track_val[0])
                 track_str = f"{track_num:02d}"
                 include_track = True
             except (ValueError, IndexError):
@@ -146,7 +164,13 @@ def organize_music(source_path, dest_path=None, dry_run=True, verbose=False, act
         else:
             new_filename = f"{artist}-{title}.mp3"
 
-        new_dir = dest_root / album_artist / album
+        # Determine the directory structure
+        if distribute:
+            dist_folder = get_distribution_folder(album_artist)
+            new_dir = dest_root / dist_folder / album_artist / album
+        else:
+            new_dir = dest_root / album_artist / album
+        
         new_path = new_dir / new_filename
 
         if new_path.exists() and new_path != file:
@@ -162,7 +186,11 @@ def organize_music(source_path, dest_path=None, dry_run=True, verbose=False, act
 
         if verbose:
             print(f"Processing: {file.name}")
-            print(f"  -> {album_artist} / {album}")
+            if distribute:
+                dist_folder = get_distribution_folder(album_artist)
+                print(f"  -> {dist_folder} / {album_artist} / {album}")
+            else:
+                print(f"  -> {album_artist} / {album}")
             print(f"  -> New: {new_path.name} ({action_str})")
 
         if not dry_run:
@@ -183,6 +211,7 @@ def organize_music(source_path, dest_path=None, dry_run=True, verbose=False, act
         else:
             if verbose:
                 print("  (Would process here)")
+            moved_count += 1
 
     print("-" * 60)
     print(f"Done. Processed: {moved_count}, Skipped: {skipped_count}, Errors: {error_count}")
@@ -198,6 +227,7 @@ def main():
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     parser.add_argument("--move", action="store_true", help="Force MOVE")
     parser.add_argument("--copy", action="store_true", help="Force COPY")
+    parser.add_argument("--distribute", "-d", action="store_true", help="Distribute files into folders by first letter: A/album-artist/album/... , B/album-artist/album/... , etc.")
 
     args = parser.parse_args()
     
@@ -207,8 +237,7 @@ def main():
     
     dry_run = not args.live
     
-    organize_music(args.source, args.destination, dry_run=dry_run, verbose=args.verbose, action=action)
+    organize_music(args.source, args.destination, dry_run=dry_run, verbose=args.verbose, action=action, distribute=args.distribute)
 
 if __name__ == "__main__":
     main()
-
